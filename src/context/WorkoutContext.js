@@ -35,7 +35,7 @@ export const WorkoutProvider = ({ children }) => {
         }
 
         if (cache.length < 50) {
-          await performDeepSync();
+          await performDeepSync(cache);
         } else {
           setExerciseCache(cache);
           await AsyncStorage.setItem('@cache_last_access', now.toISOString());
@@ -47,17 +47,27 @@ export const WorkoutProvider = ({ children }) => {
     loadData();
   }, []);
 
-  const mapExercise = (item) => ({
-    id: String(item.id),
-    name: item.name || 'Unknown',
-    category: item.category ? (typeof item.category === 'object' ? item.category.name : item.category) : 'General',
-    equipment: item.equipment && item.equipment.length > 0 ? item.equipment[0].name : 'No equipment',
-    instructions: item.description ? item.description.replace(/<[^>]*>?/gm, '') : 'No instructions available.',
-    // Secure HTTPS video URL for Android compatibility
-    videoUrl: 'https://vjs.zencdn.net/v/oceans.mp4',
-  });
+  const mapExercise = (item) => {
+    // The wger.de exerciseinfo API stores names and descriptions inside a translations array.
+    // Extract the English translation (language id 2) to get the correct exercise name.
+    const englishTranslation = item.translations
+      ? item.translations.find(t => t.language && (t.language.id === 2 || t.language.short_name === 'en'))
+      : null;
+    const name = (englishTranslation && englishTranslation.name) || item.name || 'Unknown Exercise';
+    const rawDescription = (englishTranslation && englishTranslation.description) || item.description || '';
+    return {
+      id: String(item.id),
+      name,
+      category: item.category ? (typeof item.category === 'object' ? item.category.name : item.category) : 'General',
+      equipment: item.equipment && item.equipment.length > 0
+        ? (typeof item.equipment[0] === 'object' ? item.equipment[0].name : item.equipment[0])
+        : 'No equipment',
+      instructions: rawDescription.replace(/<[^>]+>/gm, ' ').replace(/&[a-zA-Z]+;/g, ' ').replace(/\s+/g, ' ').trim() || 'No instructions available.',
+      videoUrl: 'http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+    };
+  };
 
-  const performDeepSync = async () => {
+  const performDeepSync = async (preservedExercises = []) => {
     if (isLoadingMore) return;
     setIsLoadingMore(true);
     let allFetched = [];
@@ -75,9 +85,25 @@ export const WorkoutProvider = ({ children }) => {
         }
         if (!data.next) break;
       }
+
+      // Merge newly fetched exercises with preserved recently-used exercises, deduplicating by id.
+      // Preserved exercises come first so their lastUsed timestamps are retained over newly fetched duplicates.
+      const merged = [...preservedExercises, ...allFetched];
+      const seen = new Set();
+      const unique = merged.filter(ex => {
+        if (seen.has(ex.id)) return false;
+        seen.add(ex.id);
+        return true;
+      });
+      setExerciseCache(unique);
+      await AsyncStorage.setItem('@exercise_cache', JSON.stringify(unique));
       await AsyncStorage.setItem('@cache_last_access', new Date().toISOString());
     } catch (error) {
       console.error('Deep sync failed', error);
+      // If sync fails but we have preserved exercises, keep them available
+      if (preservedExercises.length > 0) {
+        setExerciseCache(preservedExercises);
+      }
     } finally {
       setIsLoadingMore(false);
       setSyncProgress(0);
@@ -88,8 +114,8 @@ export const WorkoutProvider = ({ children }) => {
     if (isLoadingMore || !query) return;
     setIsLoadingMore(true);
     try {
-      // Use broader search endpoint for fuzzy matching
-      const response = await fetch(`https://wger.de/api/v2/exercise/search/?term=${encodeURIComponent(query)}`);
+      // Include language and format parameters for consistent English results
+      const response = await fetch(`https://wger.de/api/v2/exercise/search/?term=${encodeURIComponent(query)}&language=english&format=json`);
       const searchData = await response.json();
 
       if (searchData.suggestions) {
@@ -126,8 +152,17 @@ export const WorkoutProvider = ({ children }) => {
       setActiveWorkout(null);
     }
   };
-  const addExerciseToWorkout = (ex) => {
-    if (activeWorkout) setActiveWorkout(prev => ({ ...prev, exercises: [...prev.exercises, ex] }));
+
+  const addExerciseToWorkout = async (exercise) => {
+    if (activeWorkout) {
+      setActiveWorkout(prev => ({ ...prev, exercises: [...prev.exercises, exercise] }));
+      // Mark exercise as recently used so it's preserved in cache for 14 days
+      const updatedCache = exerciseCache.map(ex =>
+        ex.id === exercise.id ? { ...ex, lastUsed: new Date().toISOString() } : ex
+      );
+      setExerciseCache(updatedCache);
+      await AsyncStorage.setItem('@exercise_cache', JSON.stringify(updatedCache));
+    }
   };
 
   useEffect(() => {
