@@ -10,7 +10,7 @@ export default function SearchScreen() {
   const [search, setSearch] = useState('');
   const [selectedExercise, setSelectedExercise] = useState(null);
   const [videoLoading, setVideoLoading] = useState(false);
-  const { addExerciseToWorkout, activeWorkout, exerciseCache, loadMoreExercises, isLoadingMore, searchAndCacheInternet } = useWorkout();
+  const { addExerciseToWorkout, activeWorkout, exerciseCache, loadMoreFromInternet, isLoadingMore } = useWorkout();
 
   const filteredExercises = exerciseCache.filter(ex => {
     const searchTerm = search.toLowerCase();
@@ -21,13 +21,8 @@ export default function SearchScreen() {
   });
 
   const handleLoadMore = async () => {
-    if (search.length > 0) {
-      // Targeted search based on what the user typed
-      await searchAndCacheInternet(search);
-    } else {
-      // General pagination
-      await loadMoreExercises();
-    }
+    // Correctly call the function as named in the context
+    await loadMoreFromInternet(search);
   };
 
   const handleAdd = (ex) => {

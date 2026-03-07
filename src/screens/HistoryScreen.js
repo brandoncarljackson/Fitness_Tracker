@@ -2,8 +2,10 @@ import React from 'react';
 import { StyleSheet, Text, View, ScrollView } from 'react-native';
 import { History, Calendar, Clock } from 'lucide-react-native';
 import { useWorkout } from '../context/WorkoutContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function HistoryScreen() {
+  const insets = useSafeAreaInsets();
   const { workoutHistory } = useWorkout();
 
   const formatTime = (seconds) => {
@@ -13,21 +15,26 @@ export default function HistoryScreen() {
   };
 
   const formatDate = (date) => {
-    return new Intl.DateTimeFormat('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    }).format(date);
+    try {
+      const d = new Date(date);
+      return new Intl.DateTimeFormat('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+      }).format(d);
+    } catch (e) {
+      return 'Unknown Date';
+    }
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <History color="#2d3436" size={28} />
         <Text style={styles.headerTitle}>Workout History</Text>
       </View>
 
-      <ScrollView contentContainerStyle={styles.list}>
+      <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
         {workoutHistory.length === 0 ? (
           <View style={styles.emptyState}>
             <Calendar color="#b2bec3" size={64} />
@@ -45,14 +52,14 @@ export default function HistoryScreen() {
               </View>
 
               <Text style={styles.exerciseCount}>
-                {workout.exercises.length} Exercises Completed
+                {workout.exercises ? workout.exercises.length : 0} Exercises Completed
               </Text>
 
               <View style={styles.exercisePreview}>
-                {workout.exercises.slice(0, 3).map((ex, i) => (
+                {workout.exercises && workout.exercises.slice(0, 3).map((ex, i) => (
                   <Text key={i} style={styles.previewText}>• {ex.name}</Text>
                 ))}
-                {workout.exercises.length > 3 && (
+                {workout.exercises && workout.exercises.length > 3 && (
                   <Text style={styles.moreText}>+{workout.exercises.length - 3} more</Text>
                 )}
               </View>
@@ -75,7 +82,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#eee'
   },
   headerTitle: { fontSize: 24, fontWeight: '900', marginLeft: 10, color: '#2d3436' },
-  list: { padding: 15 },
+  list: { padding: 15, paddingBottom: 100 },
   emptyState: { alignItems: 'center', marginTop: 100 },
   emptyText: { color: '#b2bec3', fontSize: 18, marginTop: 15, fontWeight: '600' },
   historyCard: {
@@ -84,6 +91,10 @@ const styles = StyleSheet.create({
     padding: 20,
     marginBottom: 15,
     elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
   },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   cardDate: { fontSize: 18, fontWeight: '800', color: '#2d3436' },

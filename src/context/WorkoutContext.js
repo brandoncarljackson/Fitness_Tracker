@@ -4,8 +4,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const WorkoutContext = createContext();
 
 const CACHE_EXPIRY_DAYS = 14;
-const INITIAL_FETCH_LIMIT = 500; // Increased to catch common exercises like Bench Press
-const SEARCH_LIMIT = 50;
+const SYNC_BATCH_SIZE = 200;
+const TOTAL_SYNC_LIMIT = 1000;
 
 export const WorkoutProvider = ({ children }) => {
   const [activeWorkout, setActiveWorkout] = useState(null);
@@ -31,16 +31,12 @@ export const WorkoutProvider = ({ children }) => {
 
         if (lastAccess) {
           const diffDays = Math.ceil(Math.abs(now - new Date(lastAccess)) / (1000 * 60 * 60 * 24));
-          if (diffDays > CACHE_EXPIRY_DAYS) {
-            console.log('Cache expired, clearing...');
-            cache = [];
-          }
+          if (diffDays > CACHE_EXPIRY_DAYS) cache = [];
         }
 
-        if (cache.length === 0) {
-          await fetchInitialExercises();
+        if (cache.length < 50) {
+          await performDeepSync();
         } else {
-          console.log(`App: Loaded ${cache.length} exercises from cache.`);
           setExerciseCache(cache);
           await AsyncStorage.setItem('@cache_last_access', now.toISOString());
         }
@@ -57,58 +53,62 @@ export const WorkoutProvider = ({ children }) => {
     category: item.category ? (typeof item.category === 'object' ? item.category.name : item.category) : 'General',
     equipment: item.equipment && item.equipment.length > 0 ? item.equipment[0].name : 'No equipment',
     instructions: item.description ? item.description.replace(/<[^>]*>?/gm, '') : 'No instructions available.',
-    videoUrl: 'https://d23dyxeqlo5psv.cloudfront.net/big_buck_bunny.mp4',
+    // Using a more reliable sample video URL
+    videoUrl: 'http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
   });
 
-  const fetchInitialExercises = async () => {
+  const performDeepSync = async () => {
+    if (isLoadingMore) return;
+    setIsLoadingMore(true);
+    let allFetched = [];
     try {
-      console.log(`App: Performing initial sync (${INITIAL_FETCH_LIMIT} items)...`);
-      const response = await fetch(`https://wger.de/api/v2/exerciseinfo/?language=2&limit=${INITIAL_FETCH_LIMIT}`);
-      if (!response.ok) throw new Error('Network error');
-      const data = await response.json();
-      const mappedData = data.results.map(mapExercise);
-      setExerciseCache(mappedData);
-      await AsyncStorage.setItem('@exercise_cache', JSON.stringify(mappedData));
+      for (let offset = 0; offset < TOTAL_SYNC_LIMIT; offset += SYNC_BATCH_SIZE) {
+        const response = await fetch(`https://wger.de/api/v2/exerciseinfo/?language=2&limit=${SYNC_BATCH_SIZE}&offset=${offset}`);
+        const data = await response.json();
+        if (data.results) {
+          allFetched = [...allFetched, ...data.results.map(mapExercise)];
+        }
+        if (!data.next) break;
+      }
+
+      setExerciseCache(allFetched);
+      await AsyncStorage.setItem('@exercise_cache', JSON.stringify(allFetched));
       await AsyncStorage.setItem('@cache_last_access', new Date().toISOString());
     } catch (error) {
-      console.error('Initial fetch failed', error);
+      console.error('Deep sync failed', error);
+    } finally {
+      setIsLoadingMore(false);
     }
   };
 
-  // This function now handles both pagination and targeted search
   const loadMoreFromInternet = async (query = '') => {
     if (isLoadingMore) return;
     setIsLoadingMore(true);
     try {
-      let url = `https://wger.de/api/v2/exerciseinfo/?language=2&limit=${SEARCH_LIMIT}`;
+      // Use broader search endpoint for fuzzy matching
+      const response = await fetch(`https://wger.de/api/v2/exercise/search/?term=${encodeURIComponent(query)}`);
+      const searchData = await response.json();
 
-      if (query) {
-        // If there's a search term, we use the name filter
-        console.log(`App: Fetching internet results for "${query}"...`);
-        url += `&name=${encodeURIComponent(query)}`;
-      } else {
-        // Otherwise, we just pull the next offset
-        url += `&offset=${exerciseCache.length}`;
+      if (searchData.suggestions) {
+        // Broad search gives suggestions with base IDs, we fetch details for the top few
+        const detailPromises = searchData.suggestions.slice(0, 10).map(async (s) => {
+          const detailRes = await fetch(`https://wger.de/api/v2/exerciseinfo/${s.data.id}/?language=2`);
+          if (detailRes.ok) return detailRes.json();
+          return null;
+        });
+
+        const details = (await Promise.all(detailPromises)).filter(d => d !== null);
+        const newItems = details.map(mapExercise);
+
+        setExerciseCache(prev => {
+          const updated = [...prev, ...newItems];
+          const unique = updated.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
+          AsyncStorage.setItem('@exercise_cache', JSON.stringify(unique));
+          return unique;
+        });
       }
-
-      const response = await fetch(url);
-      const data = await response.json();
-      const newItems = data.results.map(mapExercise);
-
-      if (newItems.length === 0 && query) {
-         // Fallback to broader term search if name filter is too strict
-         console.log('App: No results for name filter, trying broader term search...');
-         // (Wger's exerciseinfo name filter is exact-ish, so we might need this in future)
-      }
-
-      setExerciseCache(prev => {
-        const updated = [...prev, ...newItems];
-        const unique = updated.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
-        AsyncStorage.setItem('@exercise_cache', JSON.stringify(unique));
-        return unique;
-      });
     } catch (error) {
-      console.error('Load more failed', error);
+      console.error('Internet search failed', error);
     } finally {
       setIsLoadingMore(false);
     }
@@ -139,7 +139,6 @@ export const WorkoutProvider = ({ children }) => {
   useEffect(() => {
     let interval;
     if (activeWorkout) interval = setInterval(() => setTimer(t => t + 1), 1000);
-    else clearInterval(interval);
     return () => clearInterval(interval);
   }, [activeWorkout]);
 
@@ -157,6 +156,7 @@ export const WorkoutProvider = ({ children }) => {
         addExerciseToWorkout,
         updateProfile,
         loadMoreFromInternet,
+        performDeepSync
       }}
     >
       {children}
