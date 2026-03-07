@@ -56,3 +56,4 @@ DerivedData/
 .idea/
 *.iml
 .vscode/
+%ProgramData%
