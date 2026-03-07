@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const WorkoutContext = createContext();
 
 const CACHE_EXPIRY_DAYS = 14;
-const SYNC_BATCH_SIZE = 200;
+const SYNC_BATCH_SIZE = 100;
 const TOTAL_SYNC_LIMIT = 1000;
 
 export const WorkoutProvider = ({ children }) => {
@@ -13,6 +13,7 @@ export const WorkoutProvider = ({ children }) => {
   const [exerciseCache, setExerciseCache] = useState([]);
   const [timer, setTimer] = useState(0);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [syncProgress, setSyncProgress] = useState(0);
   const [userProfile, setUserProfile] = useState({ name: '', weight: '', height: '', goal: '' });
 
   useEffect(() => {
@@ -29,9 +30,8 @@ export const WorkoutProvider = ({ children }) => {
         let cache = storedCache ? JSON.parse(storedCache) : [];
         const now = new Date();
 
-        if (lastAccess) {
-          const diffDays = Math.ceil(Math.abs(now - new Date(lastAccess)) / (1000 * 60 * 60 * 24));
-          if (diffDays > CACHE_EXPIRY_DAYS) cache = [];
+        if (lastAccess && (now - new Date(lastAccess)) / (1000 * 60 * 60 * 24) > CACHE_EXPIRY_DAYS) {
+          cache = [];
         }
 
         if (cache.length < 50) {
@@ -41,7 +41,7 @@ export const WorkoutProvider = ({ children }) => {
           await AsyncStorage.setItem('@cache_last_access', now.toISOString());
         }
       } catch (e) {
-        console.error('Failed to load local storage', e);
+        console.error('Context: Load failed', e);
       }
     };
     loadData();
@@ -49,12 +49,12 @@ export const WorkoutProvider = ({ children }) => {
 
   const mapExercise = (item) => ({
     id: String(item.id),
-    name: item.name || 'Unknown Exercise',
+    name: item.name || 'Unknown',
     category: item.category ? (typeof item.category === 'object' ? item.category.name : item.category) : 'General',
     equipment: item.equipment && item.equipment.length > 0 ? item.equipment[0].name : 'No equipment',
     instructions: item.description ? item.description.replace(/<[^>]*>?/gm, '') : 'No instructions available.',
-    // Using a more reliable sample video URL
-    videoUrl: 'http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+    // Secure HTTPS video URL for Android compatibility
+    videoUrl: 'https://vjs.zencdn.net/v/oceans.mp4',
   });
 
   const performDeepSync = async () => {
@@ -66,23 +66,26 @@ export const WorkoutProvider = ({ children }) => {
         const response = await fetch(`https://wger.de/api/v2/exerciseinfo/?language=2&limit=${SYNC_BATCH_SIZE}&offset=${offset}`);
         const data = await response.json();
         if (data.results) {
-          allFetched = [...allFetched, ...data.results.map(mapExercise)];
+          const batch = data.results.map(mapExercise);
+          allFetched = [...allFetched, ...batch];
+          setExerciseCache([...allFetched]); // Update UI immediately
+          setSyncProgress(Math.round((allFetched.length / TOTAL_SYNC_LIMIT) * 100));
+          // Save incrementally so we don't lose progress on error
+          await AsyncStorage.setItem('@exercise_cache', JSON.stringify(allFetched));
         }
         if (!data.next) break;
       }
-
-      setExerciseCache(allFetched);
-      await AsyncStorage.setItem('@exercise_cache', JSON.stringify(allFetched));
       await AsyncStorage.setItem('@cache_last_access', new Date().toISOString());
     } catch (error) {
       console.error('Deep sync failed', error);
     } finally {
       setIsLoadingMore(false);
+      setSyncProgress(0);
     }
   };
 
   const loadMoreFromInternet = async (query = '') => {
-    if (isLoadingMore) return;
+    if (isLoadingMore || !query) return;
     setIsLoadingMore(true);
     try {
       // Use broader search endpoint for fuzzy matching
@@ -90,14 +93,12 @@ export const WorkoutProvider = ({ children }) => {
       const searchData = await response.json();
 
       if (searchData.suggestions) {
-        // Broad search gives suggestions with base IDs, we fetch details for the top few
         const detailPromises = searchData.suggestions.slice(0, 10).map(async (s) => {
-          const detailRes = await fetch(`https://wger.de/api/v2/exerciseinfo/${s.data.id}/?language=2`);
-          if (detailRes.ok) return detailRes.json();
-          return null;
+          const res = await fetch(`https://wger.de/api/v2/exerciseinfo/${s.data.id}/?language=2`);
+          return res.ok ? res.json() : null;
         });
 
-        const details = (await Promise.all(detailPromises)).filter(d => d !== null);
+        const details = (await Promise.all(detailPromises)).filter(d => d);
         const newItems = details.map(mapExercise);
 
         setExerciseCache(prev => {
@@ -114,11 +115,7 @@ export const WorkoutProvider = ({ children }) => {
     }
   };
 
-  const updateProfile = async (newProfile) => {
-    setUserProfile(newProfile);
-    await AsyncStorage.setItem('@user_profile', JSON.stringify(newProfile));
-  };
-
+  const updateProfile = async (p) => { setUserProfile(p); await AsyncStorage.setItem('@user_profile', JSON.stringify(p)); };
   const startWorkout = () => { setActiveWorkout({ startTime: new Date(), exercises: [] }); setTimer(0); };
   const endWorkout = () => {
     if (activeWorkout) {
@@ -129,35 +126,24 @@ export const WorkoutProvider = ({ children }) => {
       setActiveWorkout(null);
     }
   };
-
-  const addExerciseToWorkout = (exercise) => {
-    if (activeWorkout) {
-      setActiveWorkout(prev => ({ ...prev, exercises: [...prev.exercises, exercise] }));
-    }
+  const addExerciseToWorkout = (ex) => {
+    if (activeWorkout) setActiveWorkout(prev => ({ ...prev, exercises: [...prev.exercises, ex] }));
   };
 
   useEffect(() => {
     let interval;
     if (activeWorkout) interval = setInterval(() => setTimer(t => t + 1), 1000);
-    return () => clearInterval(interval);
+    else {
+      if (interval) clearInterval(interval);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
   }, [activeWorkout]);
 
   return (
     <WorkoutContext.Provider
-      value={{
-        activeWorkout,
-        workoutHistory,
-        exerciseCache,
-        timer,
-        userProfile,
-        isLoadingMore,
-        startWorkout,
-        endWorkout,
-        addExerciseToWorkout,
-        updateProfile,
-        loadMoreFromInternet,
-        performDeepSync
-      }}
+      value={{ activeWorkout, workoutHistory, exerciseCache, timer, userProfile, isLoadingMore, syncProgress, startWorkout, endWorkout, addExerciseToWorkout, updateProfile, loadMoreFromInternet, performDeepSync }}
     >
       {children}
     </WorkoutContext.Provider>
