@@ -69,6 +69,10 @@ export default function WorkoutScreen() {
       setCurrentReps('');
       stopRestTimer();
     }
+  // Reset sub-views when workout ends.
+  // stopRestTimer only calls stable state setters and a ref, so it is safe to
+  // omit from the dependency array here — adding it would cause an infinite
+  // re-render loop because the function reference changes on every render.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeWorkout]);
 
