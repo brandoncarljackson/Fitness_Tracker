@@ -2,15 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { View, ImageBackground, StyleSheet, Text, ActivityIndicator, Platform } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
-import { Dumbbell, History, Search, Settings } from 'lucide-react-native';
+import { Dumbbell, History, Search, UserCircle } from 'lucide-react-native';
 
 // Screens
 import WorkoutScreen from './src/screens/WorkoutScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
 import SearchScreen from './src/screens/SearchScreen';
-import SettingsScreen from './src/screens/SettingsScreen';
+import ProfileScreen from './src/screens/ProfileScreen';
 
 // Context
 import { WorkoutProvider } from './src/context/WorkoutContext';
@@ -59,40 +60,43 @@ export default function App() {
   }
 
   return (
-    <WorkoutProvider>
-      <NavigationContainer>
-        <StatusBar style="dark" />
-        <Tab.Navigator
-          screenOptions={({ route }) => ({
-            tabBarIcon: ({ color, size }) => {
-              if (route.name === 'Workout') return <Dumbbell color={color} size={size} />;
-              if (route.name === 'History') return <History color={color} size={size} />;
-              if (route.name === 'Search') return <Search color={color} size={size} />;
-              if (route.name === 'Settings') return <Settings color={color} size={size} />;
-            },
-            tabBarActiveTintColor: '#00b894',
-            tabBarInactiveTintColor: '#b2bec3',
-            headerShown: false,
-            tabBarStyle: {
-               paddingBottom: Platform.OS === 'android' ? 10 : 30,
-               height: Platform.OS === 'android' ? 70 : 90,
-               borderTopWidth: 1,
-               borderTopColor: '#f1f2f6',
-               elevation: 10,
-            },
-            tabBarLabelStyle: {
-              fontSize: 12,
-              fontWeight: '800',
-            }
-          })}
-        >
-          <Tab.Screen name="Workout" component={WorkoutScreen} />
-          <Tab.Screen name="Search" component={SearchScreen} />
-          <Tab.Screen name="History" component={HistoryScreen} />
-          <Tab.Screen name="Settings" component={SettingsScreen} />
-        </Tab.Navigator>
-      </NavigationContainer>
-    </WorkoutProvider>
+    <SafeAreaProvider>
+      <WorkoutProvider>
+        <NavigationContainer>
+          <StatusBar style="dark" />
+          <Tab.Navigator
+            screenOptions={({ route }) => ({
+              tabBarIcon: ({ color, size }) => {
+                if (route.name === 'Workout') return <Dumbbell color={color} size={size} />;
+                if (route.name === 'History') return <History color={color} size={size} />;
+                if (route.name === 'Search') return <Search color={color} size={size} />;
+                if (route.name === 'Profile') return <UserCircle color={color} size={size} />;
+              },
+              tabBarActiveTintColor: '#00b894',
+              tabBarInactiveTintColor: '#b2bec3',
+              headerShown: false,
+              tabBarStyle: {
+                 paddingBottom: Platform.OS === 'android' ? 10 : 30,
+                 height: Platform.OS === 'android' ? 70 : 90,
+                 borderTopWidth: 1,
+                 borderTopColor: '#f1f2f6',
+                 elevation: 10,
+                 backgroundColor: '#fff',
+              },
+              tabBarLabelStyle: {
+                fontSize: 12,
+                fontWeight: '800',
+              }
+            })}
+          >
+            <Tab.Screen name="Workout" component={WorkoutScreen} />
+            <Tab.Screen name="Search" component={SearchScreen} />
+            <Tab.Screen name="History" component={HistoryScreen} />
+            <Tab.Screen name="Profile" component={ProfileScreen} />
+          </Tab.Navigator>
+        </NavigationContainer>
+      </WorkoutProvider>
+    </SafeAreaProvider>
   );
 }
 

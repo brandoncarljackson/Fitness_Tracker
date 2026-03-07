@@ -1,4 +1,5 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const WorkoutContext = createContext();
 
@@ -6,6 +7,49 @@ export const WorkoutProvider = ({ children }) => {
   const [activeWorkout, setActiveWorkout] = useState(null);
   const [workoutHistory, setWorkoutHistory] = useState([]);
   const [timer, setTimer] = useState(0);
+  const [userProfile, setUserProfile] = useState({
+    name: '',
+    weight: '',
+    height: '',
+    goal: '',
+  });
+
+  // Load data on startup
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const storedHistory = await AsyncStorage.getItem('@workout_history');
+        const storedProfile = await AsyncStorage.getItem('@user_profile');
+        if (storedHistory) setWorkoutHistory(JSON.parse(storedHistory));
+        if (storedProfile) setUserProfile(JSON.parse(storedProfile));
+      } catch (e) {
+        console.error('Failed to load local storage', e);
+      }
+    };
+    loadData();
+  }, []);
+
+  // Save history when it changes
+  useEffect(() => {
+    const saveHistory = async () => {
+      try {
+        await AsyncStorage.setItem('@workout_history', JSON.stringify(workoutHistory));
+      } catch (e) {
+        console.error('Failed to save history', e);
+      }
+    };
+    saveHistory();
+  }, [workoutHistory]);
+
+  // Save profile when it changes
+  const updateProfile = async (newProfile) => {
+    try {
+      setUserProfile(newProfile);
+      await AsyncStorage.setItem('@user_profile', JSON.stringify(newProfile));
+    } catch (e) {
+      console.error('Failed to save profile', e);
+    }
+  };
 
   useEffect(() => {
     let interval;
@@ -44,7 +88,7 @@ export const WorkoutProvider = ({ children }) => {
     if (activeWorkout) {
       setActiveWorkout({
         ...activeWorkout,
-        exercises: [...activeWorkout.exercises, { ...exercise, sets: [] }],
+        exercises: [...activeWorkout.exercises, { ...exercise }],
       });
     }
   };
@@ -55,9 +99,11 @@ export const WorkoutProvider = ({ children }) => {
         activeWorkout,
         workoutHistory,
         timer,
+        userProfile,
         startWorkout,
         endWorkout,
         addExerciseToWorkout,
+        updateProfile,
       }}
     >
       {children}
