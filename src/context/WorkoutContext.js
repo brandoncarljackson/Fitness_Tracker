@@ -15,6 +15,7 @@ export const WorkoutProvider = ({ children }) => {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [syncProgress, setSyncProgress] = useState(0);
   const [userProfile, setUserProfile] = useState({ name: '', weight: '', height: '', goal: '' });
+  const [restTimerDuration, setRestTimerDuration] = useState(90);
 
   useEffect(() => {
     const loadData = async () => {
@@ -153,9 +154,12 @@ export const WorkoutProvider = ({ children }) => {
     }
   };
 
-  const addExerciseToWorkout = async (exercise) => {
+  // Adds a completed exercise (with its logged sets) to the active workout.
+  // sets: array of { weight: number, reps: number }
+  const addExerciseToWorkout = async (exercise, sets = []) => {
     if (activeWorkout) {
-      setActiveWorkout(prev => ({ ...prev, exercises: [...prev.exercises, exercise] }));
+      const entry = { ...exercise, sets, completed: sets.length > 0 };
+      setActiveWorkout(prev => ({ ...prev, exercises: [...prev.exercises, entry] }));
       // Mark exercise as recently used so it's preserved in cache for 14 days
       const updatedCache = exerciseCache.map(ex =>
         ex.id === exercise.id ? { ...ex, lastUsed: new Date().toISOString() } : ex
@@ -163,6 +167,11 @@ export const WorkoutProvider = ({ children }) => {
       setExerciseCache(updatedCache);
       await AsyncStorage.setItem('@exercise_cache', JSON.stringify(updatedCache));
     }
+  };
+
+  const updateRestTimerDuration = (secs) => {
+    const duration = Math.max(5, Math.min(600, Math.round(secs)));
+    setRestTimerDuration(duration);
   };
 
   useEffect(() => {
@@ -178,7 +187,7 @@ export const WorkoutProvider = ({ children }) => {
 
   return (
     <WorkoutContext.Provider
-      value={{ activeWorkout, workoutHistory, exerciseCache, timer, userProfile, isLoadingMore, syncProgress, startWorkout, endWorkout, addExerciseToWorkout, updateProfile, loadMoreFromInternet, performDeepSync }}
+      value={{ activeWorkout, workoutHistory, exerciseCache, timer, userProfile, isLoadingMore, syncProgress, restTimerDuration, startWorkout, endWorkout, addExerciseToWorkout, updateProfile, updateRestTimerDuration, loadMoreFromInternet, performDeepSync }}
     >
       {children}
     </WorkoutContext.Provider>
