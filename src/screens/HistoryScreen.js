@@ -57,7 +57,18 @@ export default function HistoryScreen() {
 
               <View style={styles.exercisePreview}>
                 {workout.exercises && workout.exercises.slice(0, 3).map((ex, i) => (
-                  <Text key={i} style={styles.previewText}>• {ex.name}</Text>
+                  <View key={i} style={styles.previewExercise}>
+                    <Text style={styles.previewText}>• {ex.name}</Text>
+                    {ex.sets && ex.sets.length > 0 && (
+                      <View style={styles.previewSets}>
+                        {ex.sets.map((s, si) => (
+                          <Text key={si} style={styles.previewSetText}>
+                            Set {si + 1}: {s.reps} reps{s.weight > 0 ? ` @ ${s.weight} kg` : ''}
+                          </Text>
+                        ))}
+                      </View>
+                    )}
+                  </View>
                 ))}
                 {workout.exercises && workout.exercises.length > 3 && (
                   <Text style={styles.moreText}>+{workout.exercises.length - 3} more</Text>
@@ -109,6 +120,9 @@ const styles = StyleSheet.create({
   durationText: { color: '#fff', fontSize: 12, fontWeight: '800', marginLeft: 5 },
   exerciseCount: { fontSize: 14, color: '#636e72', fontWeight: '600' },
   exercisePreview: { marginTop: 10, borderTopWidth: 1, borderTopColor: '#f1f2f6', paddingTop: 10 },
+  previewExercise: { marginBottom: 6 },
   previewText: { fontSize: 14, color: '#95a5a6', marginBottom: 2 },
+  previewSets: { marginLeft: 14 },
+  previewSetText: { fontSize: 12, color: '#b2bec3', marginBottom: 1 },
   moreText: { fontSize: 12, color: '#b2bec3', fontStyle: 'italic', marginTop: 2 }
 });
